@@ -45,6 +45,25 @@ tbody th { font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 dl.rules { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: .92rem; }
 dl.rules dt { font-weight: 600; }
 dl.rules dd { margin: 0; color: var(--muted); }
+/* 10×10 격자: 바둑판은 두 테마 모두 같은 나무색이라 돌 색을 고정한다. */
+.boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 20px 16px; }
+.boards figure { margin: 0; }
+.boards figcaption { margin-top: 6px; font-size: .9rem; }
+.boards figcaption strong { display: block; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.boards figcaption span { display: block; color: var(--muted); font-variant-numeric: tabular-nums; }
+.board { display: grid; grid-template-columns: repeat(10, 1fr); width: 100%; max-width: 220px; aspect-ratio: 1;
+         padding: 3%; background: #dcb35c; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+.point { position: relative; }
+.point::before, .point::after { content: ""; position: absolute; background: rgba(60, 40, 10, .55); }
+.point::before { left: 0; right: 0; top: 50%; height: 1px; }
+.point::after { top: 0; bottom: 0; left: 50%; width: 1px; }
+.stone { position: absolute; inset: 8%; border-radius: 50%; z-index: 1; }
+.stone.valid { background: radial-gradient(circle at 35% 30%, #5a5a5a, #111 60%); }
+.stone.excluded { background: radial-gradient(circle at 35% 30%, #ffffff, #d6d6d0 70%); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; margin: 0 0 12px; font-size: .92rem; color: var(--muted); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { position: relative; display: inline-block; width: 16px; height: 16px; border-radius: 3px; background: #dcb35c; }
+.legend .swatch .stone { inset: 6%; }
 </style>
 </head>
 <body>
@@ -71,6 +90,15 @@ dl.rules dd { margin: 0; color: var(--muted); }
         <tbody id="rows"></tbody>
       </table>
     </div>
+
+    <h2>10×10 격자</h2>
+    <p class="legend">
+      <span class="key"><span class="swatch"><span class="stone valid"></span></span>유효 응답</span>
+      <span class="key"><span class="swatch"><span class="stone excluded"></span></span>제외</span>
+      <span class="key"><span class="swatch"></span>빈 응답</span>
+      <span>1칸 = 응답의 1%</span>
+    </p>
+    <div id="boards" class="boards"></div>
   </section>
 
   <h2>집계 기준</h2>
@@ -245,6 +273,7 @@ dl.rules dd { margin: 0; color: var(--muted); }
   var status = document.getElementById('status');
   var result = document.getElementById('result');
   var tbody = document.getElementById('rows');
+  var boards = document.getElementById('boards');
 
   function setStatus(text, isError) {
     status.textContent = text;
@@ -259,8 +288,49 @@ dl.rules dd { margin: 0; color: var(--muted); }
     return el;
   }
 
+  // 문항 하나를 10×10 판으로 그린다. 검은 돌(유효) → 흰 돌(제외) → 빈 칸(빈 응답) 순서로 왼쪽 위부터 채운다.
+  function board(q) {
+    var split = SurveyTally.toGridCells([q.valid, q.excluded, q.blank]);
+    var kinds = [];
+    var i;
+    for (i = 0; i < split[0]; i++) kinds.push('valid');
+    for (i = 0; i < split[1]; i++) kinds.push('excluded');
+    var figure = document.createElement('figure');
+    var grid = document.createElement('div');
+    grid.className = 'board';
+    grid.setAttribute('role', 'img');
+    grid.setAttribute('aria-label', q.name + ': 유효 응답 ' + split[0] + '칸, 제외 ' + split[1] + '칸, 빈 응답 ' + split[2] + '칸');
+    for (i = 0; i < 100; i++) {
+      var point = document.createElement('span');
+      point.className = 'point';
+      if (kinds[i]) {
+        var stone = document.createElement('span');
+        stone.className = 'stone ' + kinds[i];
+        point.appendChild(stone);
+      }
+      grid.appendChild(point);
+    }
+    var caption = document.createElement('figcaption');
+    var name = document.createElement('strong');
+    name.textContent = q.name;
+    var detail = document.createElement('span');
+    var total = q.valid + q.blank + q.excluded;
+    detail.textContent = total === 0
+      ? '응답 없음'
+      : '유효 ' + q.valid + ' · 제외 ' + q.excluded + ' · 빈 응답 ' + q.blank;
+    var avg = document.createElement('span');
+    avg.textContent = '평균 ' + q.average;
+    caption.appendChild(name);
+    caption.appendChild(detail);
+    caption.appendChild(avg);
+    figure.appendChild(grid);
+    figure.appendChild(caption);
+    return figure;
+  }
+
   function render() {
     tbody.textContent = '';
+    boards.textContent = '';
     if (input.value.trim() === '') {
       result.hidden = true;
       setStatus('', false);
@@ -282,6 +352,7 @@ dl.rules dd { margin: 0; color: var(--muted); }
       tr.appendChild(cell('td', String(q.blank), 'num'));
       tr.appendChild(cell('td', String(q.excluded), 'num'));
       tbody.appendChild(tr);
+      boards.appendChild(board(q));
     });
     result.hidden = false;
     var msg = '응답 ' + out.responseCount + '줄, 문항 ' + out.questions.length + '개를 집계했습니다.';
