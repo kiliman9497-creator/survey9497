@@ -176,6 +176,25 @@ test('컴퓨터는 3×3에서 지지 않는다(상대의 모든 수를 끝까지
   assert.ok(games > 100);
 });
 
+test('컴퓨터가 먼저 두면 10×10에서 상대가 어떻게 받아도 세 번째 수 안에 이긴다', () => {
+  const start = play(createGame(10), bestMove(createGame(10)));
+  let games = 0;
+  start.cells.forEach((c1, r1) => {
+    if (c1) return;
+    const g2 = play(start, r1);
+    const g3 = play(g2, bestMove(g2));
+    g3.cells.forEach((c2, r2) => {
+      if (c2) return;
+      const g4 = play(g3, r2);
+      assert.equal(g4.winner, null, '상대는 두 수로 이길 수 없다');
+      const g5 = play(g4, bestMove(g4));
+      games += 1;
+      assert.equal(g5.winner, 'O', `상대 ${r1}, ${r2}에 컴퓨터가 이기지 못함: ${g5.moves.join(',')}`);
+    });
+  });
+  assert.equal(games, 99 * 97);
+});
+
 test('컴퓨터의 수는 항상 둘 수 있는 자리', () => {
   let g = createGame(10);
   for (let i = 0; i < 100 && !(g.winner || g.draw); i++) {

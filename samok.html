@@ -73,8 +73,14 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     </label>
     <label>상대
       <select id="mode">
-        <option value="computer" selected>컴퓨터 (나는 O)</option>
+        <option value="computer" selected>컴퓨터</option>
         <option value="human">둘이서</option>
+      </select>
+    </label>
+    <label>먼저 두기
+      <select id="first">
+        <option value="computer" selected>컴퓨터</option>
+        <option value="me">나</option>
       </select>
     </label>
     <button type="button" id="new" class="primary">새 게임</button>
@@ -295,7 +301,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   var modeEl = document.getElementById('mode');
   var undoBtn = document.getElementById('undo');
   var NAMES = { O: 'O', X: 'X' };
-  var COMPUTER = 'X';
+  var firstEl = document.getElementById('first');
   var game;
   var focusIndex = 0;
   var thinking = null;
@@ -303,6 +309,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   var counted = false;
 
   function vsComputer() { return modeEl.value === 'computer'; }
+  // 먼저 두는 쪽이 O다. 컴퓨터가 먼저면 컴퓨터가 O, 아니면 X.
+  function computerSide() { return firstEl.value === 'computer' ? 'O' : 'X'; }
 
   function markEl(player) {
     var m = document.createElement('span');
@@ -344,7 +352,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     (game.line || []).forEach(function (i) { winSet[i] = true; });
     var last = game.moves.length ? game.moves[game.moves.length - 1] : -1;
     var over = Boolean(game.winner) || game.draw;
-    var waiting = vsComputer() && game.turn === COMPUTER && !over;
+    var waiting = vsComputer() && game.turn === computerSide() && !over;
     for (var i = 0; i < game.cells.length; i++) {
       var b = cellAt(i);
       var v = game.cells[i];
@@ -362,7 +370,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     if (game.winner) {
       statusEl.appendChild(chip(game.winner));
       statusEl.appendChild(document.createTextNode(
-        vsComputer() ? (game.winner === COMPUTER ? '컴퓨터가 이겼습니다.' : '이겼습니다!') : NAMES[game.winner] + ' 승리!'));
+        vsComputer() ? (game.winner === computerSide() ? '컴퓨터가 이겼습니다.' : '이겼습니다!') : NAMES[game.winner] + ' 승리!'));
     } else if (game.draw) {
       statusEl.textContent = '무승부입니다.';
     } else {
@@ -375,13 +383,15 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
       counted = true;
       if (game.winner) score[game.winner] += 1; else score.draw += 1;
     }
+    var cpu = computerSide(), me = Samok.opponent(cpu);
+    firstEl.disabled = !vsComputer();
     scoreEl.textContent = vsComputer()
-      ? '나(O) ' + score.O + '승 · 컴퓨터(X) ' + score.X + '승 · 무승부 ' + score.draw
+      ? '나(' + me + ') ' + score[me] + '승 · 컴퓨터(' + cpu + ') ' + score[cpu] + '승 · 무승부 ' + score.draw
       : 'O ' + score.O + '승 · X ' + score.X + '승 · 무승부 ' + score.draw;
   }
 
   function computerTurn() {
-    if (!vsComputer() || game.turn !== COMPUTER || game.winner || game.draw) return;
+    if (!vsComputer() || game.turn !== computerSide() || game.winner || game.draw) return;
     thinking = setTimeout(function () {
       thinking = null;
       var m = Samok.bestMove(game);
@@ -401,6 +411,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     counted = false;
     buildBoard();
     render();
+    computerTurn();
   }
 
   boardEl.addEventListener('click', function (e) {
@@ -443,7 +454,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     var steps = 1;
     if (vsComputer()) {
       var lastPlayer = game.cells[game.moves[game.moves.length - 1]];
-      steps = lastPlayer === COMPUTER ? 2 : 1;
+      steps = lastPlayer === computerSide() ? 2 : 1;
     }
     if (wasOver && counted) {
       if (game.winner) score[game.winner] -= 1; else score.draw -= 1;
@@ -456,10 +467,13 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
   document.getElementById('new').addEventListener('click', newGame);
   sizeEl.addEventListener('change', newGame);
-  modeEl.addEventListener('change', function () {
+  // 상대나 먼저 두는 쪽이 바뀌면 O·X 주인이 바뀌므로 전적을 새로 센다.
+  function resetAndStart() {
     score = { O: 0, X: 0, draw: 0 };
     newGame();
-  });
+  }
+  modeEl.addEventListener('change', resetAndStart);
+  firstEl.addEventListener('change', resetAndStart);
 
   newGame();
 })();
