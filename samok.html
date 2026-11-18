@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>삼목</title>
+</head>
+<body>
+<!-- 게임 로직: 화면(DOM)과 무관한 순수 함수만 둔다. tests/samok.test.js가 이 블록만 꺼내 시험한다. -->
+<script id="samok-core">
+(function (root) {
+  'use strict';
+
+  var DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+  function opponent(player) {
+    return player === 'O' ? 'X' : 'O';
+  }
+
+  // 새 판. 기본은 10×10, 3개를 이으면 승리, O가 먼저 둔다.
+  function createGame(size, winLength) {
+    if (size === undefined) size = 10;
+    if (winLength === undefined) winLength = 3;
+    if (!(size >= 3 && size <= 19 && size % 1 === 0)) throw new RangeError('판 크기는 3~19');
+    if (!(winLength >= 3 && winLength <= size && winLength % 1 === 0)) throw new RangeError('이길 줄 길이는 3~판 크기');
+    var cells = [];
+    for (var i = 0; i < size * size; i++) cells.push('');
+    return { size: size, winLength: winLength, cells: cells, turn: 'O', moves: [], winner: null, line: null, draw: false };
+  }
+
+  // index에 놓인 돌을 지나는, winLength 이상 이어진 줄의 칸 번호(작은 순)를 돌려준다. 없으면 null.
+  function findLine(cells, size, winLength, index) {
+    var player = cells[index];
+    if (!player) return null;
+    var row = Math.floor(index / size);
+    var col = index % size;
+    for (var d = 0; d < DIRECTIONS.length; d++) {
+      var dr = DIRECTIONS[d][0];
+      var dc = DIRECTIONS[d][1];
+      var line = [index];
+      var s;
+      for (s = 1; ; s++) {
+        var r1 = row - dr * s, c1 = col - dc * s;
+        if (r1 < 0 || r1 >= size || c1 < 0 || c1 >= size || cells[r1 * size + c1] !== player) break;
+        line.unshift(r1 * size + c1);
+      }
+      for (s = 1; ; s++) {
+        var r2 = row + dr * s, c2 = col + dc * s;
+        if (r2 < 0 || r2 >= size || c2 < 0 || c2 >= size || cells[r2 * size + c2] !== player) break;
+        line.push(r2 * size + c2);
+      }
+      if (line.length >= winLength) return line.sort(function (a, b) { return a - b; });
+    }
+    return null;
+  }
+
+  function isOver(game) {
+    return Boolean(game.winner) || game.draw;
+  }
+
+  // 지금 차례인 사람이 index에 둔 새 판을 돌려준다. 둘 수 없는 자리면 null. 원래 판은 바꾸지 않는다.
+  function play(game, index) {
+    if (isOver(game)) return null;
+    if (!(index >= 0 && index < game.cells.length && index % 1 === 0)) return null;
+    if (game.cells[index]) return null;
+    var cells = game.cells.slice();
+    cells[index] = game.turn;
+    var moves = game.moves.concat([index]);
+    var line = findLine(cells, game.size, game.winLength, index);
+    var winner = line ? game.turn : null;
+    var draw = !winner && moves.length === cells.length;
+    return {
+      size: game.size,
+      winLength: game.winLength,
+      cells: cells,
+      turn: winner || draw ? game.turn : opponent(game.turn),
+      moves: moves,
+      winner: winner,
+      line: line,
+      draw: draw
+    };
+  }
+
+  // 마지막 steps 수(기본 1)를 무른 판.
+  function undo(game, steps) {
+    if (steps === undefined) steps = 1;
+    var keep = game.moves.slice(0, Math.max(0, game.moves.length - steps));
+    var next = createGame(game.size, game.winLength);
+    for (var i = 0; i < keep.length; i++) next = play(next, keep[i]);
+    return next;
+  }
+
+  function emptyCells(cells) {
+    var out = [];
+    for (var i = 0; i < cells.length; i++) if (!cells[i]) out.push(i);
+    return out;
+  }
+
+  function winsAt(cells, size, winLength, index, player) {
+    if (cells[index]) return false;
+    cells[index] = player;
+    var won = findLine(cells, size, winLength, index) !== null;
+    cells[index] = '';
+    return won;
+  }
+
+  // index에 player가 두면 다음 수에 이길 수 있는 자리가 몇 곳 생기는지.
+  function threatsAfter(cells, size, winLength, index, player, empties) {
+    cells[index] = player;
+    var count = 0;
+    for (var k = 0; k < empties.length; k++) {
+      if (empties[k] !== index && winsAt(cells, size, winLength, empties[k], player)) count += 1;
+    }
+    cells[index] = '';
+    return count;
+  }
+
+  function minimax(cells, size, winLength, player, me, depth) {
+    var empties = emptyCells(cells);
+    var best = player === me ? -Infinity : Infinity;
+    for (var k = 0; k < empties.length; k++) {
+      var i = empties[k];
+      cells[i] = player;
+      var score;
+      if (findLine(cells, size, winLength, i)) score = player === me ? 100 - depth : depth - 100;
+      else if (empties.length === 1) score = 0;
+      else score = minimax(cells, size, winLength, opponent(player), me, depth + 1);
+      cells[i] = '';
+      if (player === me ? score > best : score < best) best = score;
+    }
+    return best;
+  }
+
+  function distanceFromCenter(index, size) {
+    var c = (size - 1) / 2;
+    return Math.abs(Math.floor(index / size) - c) + Math.abs((index % size) - c);
+  }
+
+  // 같은 점수면 가운데에 가까운 칸, 그다음 번호가 작은 칸을 고른다.
+  function pickBest(candidates, scoreOf, size) {
+    var best = -1, bestScore = -Infinity;
+    for (var k = 0; k < candidates.length; k++) {
+      var i = candidates[k];
+      var s = scoreOf(i);
+      if (s > bestScore || (s === bestScore && distanceFromCenter(i, size) < distanceFromCenter(best, size))) {
+        best = i;
+        bestScore = s;
+      }
+    }
+    return best;
+  }
+
+  // 컴퓨터의 수. 이길 자리 → 막을 자리 → (빈칸 9개 이하면 끝까지 읽기) → 양쪽 공격 만들기/막기 → 줄 점수 순으로 고른다.
+  function bestMove(game) {
+    if (isOver(game)) return -1;
+    var cells = game.cells.slice();
+    var size = game.size, n = game.winLength;
+    var me = game.turn, them = opponent(me);
+    var empties = emptyCells(cells);
+    var k;
+    for (k = 0; k < empties.length; k++) if (winsAt(cells, size, n, empties[k], me)) return empties[k];
+    for (k = 0; k < empties.length; k++) if (winsAt(cells, size, n, empties[k], them)) return empties[k];
+    if (empties.length <= 9) {
+      return pickBest(empties, function (i) {
+        cells[i] = me;
+        var s = empties.length === 1 ? 0 : minimax(cells, size, n, them, me, 1);
+        cells[i] = '';
+        return s;
+      }, size);
+    }
+    var forks = empties.filter(function (i) { return threatsAfter(cells, size, n, i, me, empties) >= 2; });
+    if (forks.length) return pickBest(forks, function () { return 0; }, size);
+    var blocks = empties.filter(function (i) { return threatsAfter(cells, size, n, i, them, empties) >= 2; });
+    if (blocks.length) return pickBest(blocks, function () { return 0; }, size);
+    return pickBest(empties, function (i) { return lineScore(cells, size, n, i, me); }, size);
+  }
+
+  // index를 지나는 길이 n짜리 구간마다, 한쪽 돌만 있으면 그 수만큼 점수를 준다(공격을 수비보다 조금 높게).
+  function lineScore(cells, size, n, index, me) {
+    var them = opponent(me);
+    var row = Math.floor(index / size), col = index % size;
+    var score = 0;
+    for (var d = 0; d < DIRECTIONS.length; d++) {
+      var dr = DIRECTIONS[d][0], dc = DIRECTIONS[d][1];
+      for (var start = -(n - 1); start <= 0; start++) {
+        var mine = 0, theirs = 0, ok = true;
+        for (var t = 0; t < n; t++) {
+          var r = row + dr * (start + t), c = col + dc * (start + t);
+          if (r < 0 || r >= size || c < 0 || c >= size) { ok = false; break; }
+          var v = cells[r * size + c];
+          if (v === me) mine += 1; else if (v === them) theirs += 1;
+        }
+        if (!ok) continue;
+        if (theirs === 0) score += 1 + mine * mine * 12;
+        if (mine === 0) score += theirs * theirs * 10;
+      }
+    }
+    return score;
+  }
+
+  root.Samok = { createGame: createGame, play: play, undo: undo, findLine: findLine, bestMove: bestMove, opponent: opponent };
+})(globalThis);
+</script>
+</body>
+</html>
