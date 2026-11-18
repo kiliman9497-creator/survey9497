@@ -12,7 +12,7 @@ assert.ok(match, 'index.html에 tally-core 스크립트가 있어야 한다');
 const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(match[1], sandbox);
-const { parseTsv, classifyCell, formatAverage, tally } = sandbox.SurveyTally;
+const { parseTsv, classifyCell, formatAverage, tally, toGridCells } = sandbox.SurveyTally;
 
 // vm 안에서 만든 객체는 프로토타입이 달라 deepStrictEqual이 실패하므로 평범한 값으로 바꾼다.
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -143,6 +143,30 @@ test('응답이 많아도 정확히 센다', () => {
   const lines = ['No\tA'];
   for (let i = 1; i <= 1000; i++) lines.push(i + '\t' + ((i % 5) + 1));
   assert.deepEqual(rowsOf(tally(lines.join('\n'))), [['A', 1000, '3.00', 0, 0]]);
+});
+
+test('10×10 격자: 합이 항상 100칸이고 비율대로 나눈다', () => {
+  assert.deepEqual(plain(toGridCells([3, 1, 0])), [75, 25, 0]);
+  assert.deepEqual(plain(toGridCells([1, 1, 1])), [34, 33, 33]); // 나머지가 같으면 앞 항목 우선
+  assert.deepEqual(plain(toGridCells([2, 1])), [67, 33]);
+  assert.deepEqual(plain(toGridCells([1, 2])), [33, 67]);
+  assert.deepEqual(plain(toGridCells([5, 0, 0])), [100, 0, 0]);
+  assert.deepEqual(plain(toGridCells([1, 998, 1])), [0, 100, 0]); // 0.1%는 1칸이 못 되어 0칸(실제 개수는 판 아래에 따로 표시)
+  assert.deepEqual(plain(toGridCells([0, 0, 0])), [0, 0, 0]);
+  assert.deepEqual(plain(toGridCells([1, 2, 3], 10)), [2, 3, 5]);
+  for (let a = 0; a <= 13; a++) {
+    for (let b = 0; b <= 13; b++) {
+      for (let c = 0; c <= 13; c++) {
+        const cells = toGridCells([a, b, c]);
+        const total = a + b + c;
+        assert.equal(cells[0] + cells[1] + cells[2], total ? 100 : 0, `${a},${b},${c}`);
+        [a, b, c].forEach((n, i) => {
+          if (n === 0) assert.equal(cells[i], 0, `${a},${b},${c}: 0개는 0칸`);
+          if (total) assert.ok(Math.abs(cells[i] - (n * 100) / total) < 1, `${a},${b},${c}: 비율에서 1칸 이상 벗어나지 않음`);
+        });
+      }
+    }
+  }
 });
 
 test('계산 로직은 DOM을 쓰지 않는다', () => {
