@@ -36,7 +36,7 @@
   - `<script id="tally-core">`: 화면과 무관한 순수 계산 로직(`SurveyTally.parseTsv`, `classifyCell`, `formatAverage`, `tally`). DOM을 건드리지 않는다.
   - 화면 스크립트: 입력을 받아 `SurveyTally.tally`를 부르고 표를 그린다.
 - `tests/tally.test.js`: `index.html`에서 `tally-core` 스크립트를 꺼내 `node:vm`으로 실행하고 시험한다. 페이지가 외부 자원을 부르지 않는지, 저장·전송 API를 쓰지 않는지도 검사한다.
-- `package.json`: `npm test` → `node --test tests/` (의존성 없음)
+- `package.json`: `npm test` → `node --test tests/*.test.js` (의존성 없음)
 
 ## 작업 순서(작업마다 커밋)
 1. 계획서

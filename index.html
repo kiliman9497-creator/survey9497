@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>설문 집계기</title>
+</head>
+<body>
+<!-- 계산 로직: 화면(DOM)과 무관한 순수 함수만 둔다. tests/tally.test.js가 이 블록만 꺼내 시험한다. -->
+<script id="tally-core">
+(function (root) {
+  'use strict';
+
+  // 엑셀 복사 형식(탭 구분, 줄바꿈 \r\n / \n / \r, 필요할 때 큰따옴표로 감싼 칸)을 읽는다.
+  // 길이 0인 줄(끝 줄바꿈 등)은 결과에 넣지 않는다.
+  function parseTsv(text) {
+    var rows = [];
+    var row = [];
+    var field = '';
+    var inQuotes = false;
+    var fieldStart = true;
+    var lineHasChars = false;
+    var i = 0;
+    var n = text.length;
+
+    function endField() {
+      row.push(field);
+      field = '';
+      fieldStart = true;
+    }
+    function endLine() {
+      if (lineHasChars) {
+        endField();
+        rows.push(row);
+      }
+      row = [];
+      field = '';
+      fieldStart = true;
+      lineHasChars = false;
+    }
+
+    while (i < n) {
+      var c = text.charAt(i);
+      if (inQuotes) {
+        if (c === '"') {
+          if (text.charAt(i + 1) === '"') {
+            field += '"';
+            i += 2;
+            continue;
+          }
+          inQuotes = false;
+        } else {
+          field += c;
+        }
+        i += 1;
+        continue;
+      }
+      if (c === '\r' || c === '\n') {
+        endLine();
+        i += (c === '\r' && text.charAt(i + 1) === '\n') ? 2 : 1;
+        continue;
+      }
+      lineHasChars = true;
+      if (c === '\t') {
+        endField();
+      } else if (c === '"' && fieldStart) {
+        inQuotes = true;
+        fieldStart = false;
+      } else {
+        field += c;
+        fieldStart = false;
+      }
+      i += 1;
+    }
+    endLine();
+    return rows;
+  }
+
+  // 'valid' | 'blank' | 'excluded'
+  function classifyCell(raw) {
+    if (raw === undefined || raw === null) return 'blank';
+    var v = String(raw).trim();
+    if (v === '') return 'blank';
+    if (v.length === 1 && v >= '1' && v <= '5') return 'valid';
+    return 'excluded';
+  }
+
+  // 합 ÷ 개수를 소수 셋째 자리에서 반올림해 둘째 자리까지. 정수 연산으로 오차 없이 계산한다.
+  function formatAverage(sum, count) {
+    if (!count) return '-';
+    var hundredths = Math.floor((200 * sum + count) / (2 * count));
+    var whole = Math.floor(hundredths / 100);
+    var frac = String(hundredths % 100);
+    if (frac.length < 2) frac = '0' + frac;
+    return whole + '.' + frac;
+  }
+
+  function tally(text) {
+    var rows = parseTsv(String(text == null ? '' : text));
+    if (rows.length === 0) {
+      return { ok: false, error: 'empty', questions: [], responseCount: 0, longRowCount: 0 };
+    }
+    var header = rows[0];
+    if (header.length < 2) {
+      return { ok: false, error: 'noQuestions', questions: [], responseCount: rows.length - 1, longRowCount: 0 };
+    }
+    var questions = [];
+    for (var q = 1; q < header.length; q++) {
+      var name = header[q].trim();
+      questions.push({ name: name === '' ? '(' + (q + 1) + '열)' : name, valid: 0, sum: 0, blank: 0, excluded: 0, average: '-' });
+    }
+    var longRowCount = 0;
+    for (var r = 1; r < rows.length; r++) {
+      var cells = rows[r];
+      if (cells.length > header.length) longRowCount += 1;
+      for (var k = 1; k < header.length; k++) {
+        var cell = cells[k];
+        var item = questions[k - 1];
+        var kind = classifyCell(cell);
+        if (kind === 'valid') {
+          item.valid += 1;
+          item.sum += Number(cell.trim());
+        } else if (kind === 'blank') {
+          item.blank += 1;
+        } else {
+          item.excluded += 1;
+        }
+      }
+    }
+    for (var j = 0; j < questions.length; j++) {
+      questions[j].average = formatAverage(questions[j].sum, questions[j].valid);
+    }
+    return { ok: true, error: null, questions: questions, responseCount: rows.length - 1, longRowCount: longRowCount };
+  }
+
+  root.SurveyTally = { parseTsv: parseTsv, classifyCell: classifyCell, formatAverage: formatAverage, tally: tally };
+})(globalThis);
+</script>
+</body>
+</html>
