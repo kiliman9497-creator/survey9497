@@ -6,8 +6,89 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>삼목</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5f5f5a; --line: #d9d9d3; --panel: #ffffff;
+  --accent: #2f5fd0; --accent-fg: #ffffff;
+  --o: #c2410c; --x: #1d4ed8; --cell: #ffffff; --grid: #c9c9c2; --win: #fde68a; --last: rgba(47, 95, 208, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161615; --fg: #ececea; --muted: #a3a39d; --line: #3a3a37; --panel: #1f1f1d;
+          --accent: #7fa2ff; --accent-fg: #10131c;
+          --o: #fb923c; --x: #7fa2ff; --cell: #232321; --grid: #3f3f3b; --win: #5b4a12; --last: rgba(127, 162, 255, .16); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 16px/1.55 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); font-size: .92rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; margin: 16px 0 12px; }
+.controls label { display: flex; flex-direction: column; gap: 4px; font-size: .88rem; font-weight: 600; color: var(--muted); }
+select, button { font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+                 background: var(--panel); color: var(--fg); }
+button { cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status { display: flex; align-items: center; gap: 8px; min-height: 2em; font-size: 1.1rem; font-weight: 600; margin: 4px 0 10px; }
+.board { display: grid; width: 100%; max-width: 560px; aspect-ratio: 1; gap: 1px; background: var(--grid);
+         border: 1px solid var(--grid); border-radius: 6px; overflow: hidden; touch-action: manipulation; }
+.cell { position: relative; padding: 0; border: 0; border-radius: 0; background: var(--cell); min-width: 0; }
+.cell:not([aria-disabled="true"]):hover { background: var(--last); }
+.cell[aria-disabled="true"] { cursor: default; }
+.cell.last { background: var(--last); }
+.cell.win { background: var(--win); }
+.cell:focus-visible { outline-offset: -3px; z-index: 1; }
+.mark { position: absolute; inset: 18%; }
+.mark.o { border: max(2px, .5vmin) solid var(--o); border-radius: 50%; }
+.mark.x::before, .mark.x::after { content: ""; position: absolute; left: 50%; top: -8%; bottom: -8%;
+  width: max(2px, .5vmin); margin-left: calc(max(2px, .5vmin) / -2); background: var(--x); border-radius: 2px; }
+.mark.x::before { transform: rotate(45deg); }
+.mark.x::after { transform: rotate(-45deg); }
+.board.size-3 .mark.o, .board.size-3 .mark.x::before, .board.size-3 .mark.x::after { border-width: 6px; }
+.board.size-3 .mark.x::before, .board.size-3 .mark.x::after { width: 6px; margin-left: -3px; }
+.chip { position: relative; display: inline-block; width: 1.1em; height: 1.1em; }
+.chip .mark { inset: 6%; }
+.chip .mark.o { border-width: 2px; }
+.chip .mark.x::before, .chip .mark.x::after { width: 2px; margin-left: -1px; }
+.score { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-variant-numeric: tabular-nums; color: var(--muted); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+</style>
 </head>
 <body>
+<main>
+  <h1>삼목</h1>
+  <p class="muted">가로·세로·대각선으로 자기 표시 3개를 먼저 이으면 이깁니다. O가 먼저 둡니다.</p>
+
+  <div class="controls">
+    <label>판 크기
+      <select id="size">
+        <option value="3">3 × 3</option>
+        <option value="5">5 × 5</option>
+        <option value="10" selected>10 × 10</option>
+      </select>
+    </label>
+    <label>상대
+      <select id="mode">
+        <option value="computer" selected>컴퓨터 (나는 O)</option>
+        <option value="human">둘이서</option>
+      </select>
+    </label>
+    <button type="button" id="new" class="primary">새 게임</button>
+  </div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+  <div class="board" id="board" role="grid" aria-label="삼목 판"></div>
+
+  <div class="actions">
+    <button type="button" id="undo">무르기</button>
+  </div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <p class="muted">키보드: 화살표로 칸을 옮기고 Enter나 Space로 둡니다.</p>
+</main>
 <!-- 게임 로직: 화면(DOM)과 무관한 순수 함수만 둔다. tests/samok.test.js가 이 블록만 꺼내 시험한다. -->
 <script id="samok-core">
 (function (root) {
@@ -202,6 +283,186 @@
 
   root.Samok = { createGame: createGame, play: play, undo: undo, findLine: findLine, bestMove: bestMove, opponent: opponent };
 })(globalThis);
+</script>
+<!-- 화면: Samok 로직으로 판을 그리고 입력을 받는다. -->
+<script>
+(function () {
+  'use strict';
+  var boardEl = document.getElementById('board');
+  var statusEl = document.getElementById('status');
+  var scoreEl = document.getElementById('score');
+  var sizeEl = document.getElementById('size');
+  var modeEl = document.getElementById('mode');
+  var undoBtn = document.getElementById('undo');
+  var NAMES = { O: 'O', X: 'X' };
+  var COMPUTER = 'X';
+  var game;
+  var focusIndex = 0;
+  var thinking = null;
+  var score = { O: 0, X: 0, draw: 0 };
+  var counted = false;
+
+  function vsComputer() { return modeEl.value === 'computer'; }
+
+  function markEl(player) {
+    var m = document.createElement('span');
+    m.className = 'mark ' + player.toLowerCase();
+    m.setAttribute('aria-hidden', 'true');
+    return m;
+  }
+  function chip(player) {
+    var c = document.createElement('span');
+    c.className = 'chip';
+    c.appendChild(markEl(player));
+    return c;
+  }
+
+  function buildBoard() {
+    boardEl.textContent = '';
+    boardEl.className = 'board size-' + game.size;
+    boardEl.style.gridTemplateColumns = 'repeat(' + game.size + ', 1fr)';
+    for (var r = 0; r < game.size; r++) {
+      var row = document.createElement('div');
+      row.setAttribute('role', 'row');
+      row.style.display = 'contents';
+      for (var c = 0; c < game.size; c++) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cell';
+        b.setAttribute('role', 'gridcell');
+        b.dataset.index = String(r * game.size + c);
+        row.appendChild(b);
+      }
+      boardEl.appendChild(row);
+    }
+  }
+
+  function cellAt(i) { return boardEl.querySelector('[data-index="' + i + '"]'); }
+
+  function render() {
+    var winSet = {};
+    (game.line || []).forEach(function (i) { winSet[i] = true; });
+    var last = game.moves.length ? game.moves[game.moves.length - 1] : -1;
+    var over = Boolean(game.winner) || game.draw;
+    var waiting = vsComputer() && game.turn === COMPUTER && !over;
+    for (var i = 0; i < game.cells.length; i++) {
+      var b = cellAt(i);
+      var v = game.cells[i];
+      b.textContent = '';
+      if (v) b.appendChild(markEl(v));
+      // disabled를 쓰면 키보드 포커스가 판 밖으로 빠지므로 aria-disabled로만 표시한다.
+      b.setAttribute('aria-disabled', String(Boolean(v) || over || waiting));
+      b.classList.toggle('win', Boolean(winSet[i]));
+      b.classList.toggle('last', i === last && !winSet[i]);
+      b.tabIndex = i === focusIndex ? 0 : -1;
+      var r = Math.floor(i / game.size) + 1, c = (i % game.size) + 1;
+      b.setAttribute('aria-label', r + '행 ' + c + '열, ' + (v ? NAMES[v] : '빈 칸') + (winSet[i] ? ', 이긴 줄' : ''));
+    }
+    statusEl.textContent = '';
+    if (game.winner) {
+      statusEl.appendChild(chip(game.winner));
+      statusEl.appendChild(document.createTextNode(
+        vsComputer() ? (game.winner === COMPUTER ? '컴퓨터가 이겼습니다.' : '이겼습니다!') : NAMES[game.winner] + ' 승리!'));
+    } else if (game.draw) {
+      statusEl.textContent = '무승부입니다.';
+    } else {
+      statusEl.appendChild(chip(game.turn));
+      statusEl.appendChild(document.createTextNode(
+        waiting ? '컴퓨터가 생각하는 중…' : (vsComputer() ? '내 차례' : NAMES[game.turn] + ' 차례')));
+    }
+    undoBtn.disabled = game.moves.length === 0 || waiting;
+    if (over && !counted) {
+      counted = true;
+      if (game.winner) score[game.winner] += 1; else score.draw += 1;
+    }
+    scoreEl.textContent = vsComputer()
+      ? '나(O) ' + score.O + '승 · 컴퓨터(X) ' + score.X + '승 · 무승부 ' + score.draw
+      : 'O ' + score.O + '승 · X ' + score.X + '승 · 무승부 ' + score.draw;
+  }
+
+  function computerTurn() {
+    if (!vsComputer() || game.turn !== COMPUTER || game.winner || game.draw) return;
+    thinking = setTimeout(function () {
+      thinking = null;
+      var m = Samok.bestMove(game);
+      if (m >= 0) game = Samok.play(game, m);
+      render();
+    }, 300);
+  }
+
+  function stopThinking() {
+    if (thinking) { clearTimeout(thinking); thinking = null; }
+  }
+
+  function newGame() {
+    stopThinking();
+    game = Samok.createGame(Number(sizeEl.value), 3);
+    focusIndex = Math.floor(game.cells.length / 2) - (game.size % 2 ? 0 : game.size / 2);
+    counted = false;
+    buildBoard();
+    render();
+  }
+
+  boardEl.addEventListener('click', function (e) {
+    var b = e.target.closest('.cell');
+    if (!b || b.getAttribute('aria-disabled') === 'true') return;
+    var i = Number(b.dataset.index);
+    var next = Samok.play(game, i);
+    if (!next) return;
+    game = next;
+    focusIndex = i;
+    render();
+    computerTurn();
+  });
+
+  boardEl.addEventListener('keydown', function (e) {
+    var moves = { ArrowUp: -game.size, ArrowDown: game.size, ArrowLeft: -1, ArrowRight: 1 };
+    if (!(e.key in moves) && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    var r = Math.floor(focusIndex / game.size), c = focusIndex % game.size;
+    if (e.key === 'ArrowUp') r = Math.max(0, r - 1);
+    if (e.key === 'ArrowDown') r = Math.min(game.size - 1, r + 1);
+    if (e.key === 'ArrowLeft') c = Math.max(0, c - 1);
+    if (e.key === 'ArrowRight') c = Math.min(game.size - 1, c + 1);
+    if (e.key === 'Home') c = 0;
+    if (e.key === 'End') c = game.size - 1;
+    focusIndex = r * game.size + c;
+    for (var i = 0; i < game.cells.length; i++) cellAt(i).tabIndex = i === focusIndex ? 0 : -1;
+    cellAt(focusIndex).focus();
+  });
+
+  boardEl.addEventListener('focusin', function (e) {
+    var b = e.target.closest('.cell');
+    if (b) focusIndex = Number(b.dataset.index);
+  });
+
+  undoBtn.addEventListener('click', function () {
+    stopThinking();
+    var wasOver = Boolean(game.winner) || game.draw;
+    // 컴퓨터와 둘 때는 내 차례로 돌아가도록 컴퓨터 수까지 함께 무른다.
+    var steps = 1;
+    if (vsComputer()) {
+      var lastPlayer = game.cells[game.moves[game.moves.length - 1]];
+      steps = lastPlayer === COMPUTER ? 2 : 1;
+    }
+    if (wasOver && counted) {
+      if (game.winner) score[game.winner] -= 1; else score.draw -= 1;
+    }
+    counted = false;
+    game = Samok.undo(game, steps);
+    render();
+    computerTurn();
+  });
+
+  document.getElementById('new').addEventListener('click', newGame);
+  sizeEl.addEventListener('change', newGame);
+  modeEl.addEventListener('change', function () {
+    score = { O: 0, X: 0, draw: 0 };
+    newGame();
+  });
+
+  newGame();
+})();
 </script>
 </body>
 </html>
