@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>삼목</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5f5f5a; --line: #d9d9d3; --panel: #ffffff;
+  --accent: #2f5fd0; --accent-fg: #ffffff;
+  --o: #c2410c; --x: #1d4ed8; --cell: #ffffff; --grid: #c9c9c2; --win: #fde68a; --last: rgba(47, 95, 208, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161615; --fg: #ececea; --muted: #a3a39d; --line: #3a3a37; --panel: #1f1f1d;
+          --accent: #7fa2ff; --accent-fg: #10131c;
+          --o: #fb923c; --x: #7fa2ff; --cell: #232321; --grid: #3f3f3b; --win: #5b4a12; --last: rgba(127, 162, 255, .16); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 16px/1.55 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); font-size: .92rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; margin: 16px 0 12px; }
+.controls label { display: flex; flex-direction: column; gap: 4px; font-size: .88rem; font-weight: 600; color: var(--muted); }
+select, button { font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+                 background: var(--panel); color: var(--fg); }
+button { cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status { display: flex; align-items: center; gap: 8px; min-height: 2em; font-size: 1.1rem; font-weight: 600; margin: 4px 0 10px; }
+.board { display: grid; width: 100%; max-width: 560px; aspect-ratio: 1; gap: 1px; background: var(--grid);
+         border: 1px solid var(--grid); border-radius: 6px; overflow: hidden; touch-action: manipulation; }
+.cell { position: relative; padding: 0; border: 0; border-radius: 0; background: var(--cell); min-width: 0; }
+.cell:not([aria-disabled="true"]):hover { background: var(--last); }
+.cell[aria-disabled="true"] { cursor: default; }
+.cell.last { background: var(--last); }
+.cell.win { background: var(--win); }
+.cell:focus-visible { outline-offset: -3px; z-index: 1; }
+.mark { position: absolute; inset: 18%; }
+.mark.o { border: max(2px, .5vmin) solid var(--o); border-radius: 50%; }
+.mark.x::before, .mark.x::after { content: ""; position: absolute; left: 50%; top: -8%; bottom: -8%;
+  width: max(2px, .5vmin); margin-left: calc(max(2px, .5vmin) / -2); background: var(--x); border-radius: 2px; }
+.mark.x::before { transform: rotate(45deg); }
+.mark.x::after { transform: rotate(-45deg); }
+.board.size-3 .mark.o, .board.size-3 .mark.x::before, .board.size-3 .mark.x::after { border-width: 6px; }
+.board.size-3 .mark.x::before, .board.size-3 .mark.x::after { width: 6px; margin-left: -3px; }
+.chip { position: relative; display: inline-block; width: 1.1em; height: 1.1em; }
+.chip .mark { inset: 6%; }
+.chip .mark.o { border-width: 2px; }
+.chip .mark.x::before, .chip .mark.x::after { width: 2px; margin-left: -1px; }
+.score { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-variant-numeric: tabular-nums; color: var(--muted); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>삼목</h1>
+  <p class="muted">가로·세로·대각선으로 자기 표시 3개를 먼저 이으면 이깁니다. O가 먼저 둡니다.</p>
+
+  <div class="controls">
+    <label>판 크기
+      <select id="size">
+        <option value="3">3 × 3</option>
+        <option value="5">5 × 5</option>
+        <option value="10" selected>10 × 10</option>
+      </select>
+    </label>
+    <label>상대
+      <select id="mode">
+        <option value="computer" selected>컴퓨터</option>
+        <option value="human">둘이서</option>
+      </select>
+    </label>
+    <label>먼저 두기
+      <select id="first">
+        <option value="computer" selected>컴퓨터</option>
+        <option value="me">나</option>
+      </select>
+    </label>
+    <button type="button" id="new" class="primary">새 게임</button>
+  </div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+  <div class="board" id="board" role="grid" aria-label="삼목 판"></div>
+
+  <div class="actions">
+    <button type="button" id="undo">무르기</button>
+  </div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <p class="muted">키보드: 화살표로 칸을 옮기고 Enter나 Space로 둡니다.</p>
+</main>
+<!-- 게임 로직: 화면(DOM)과 무관한 순수 함수만 둔다. tests/samok.test.js가 이 블록만 꺼내 시험한다. -->
+<script id="samok-core">
+(function (root) {
+  'use strict';
+
+  var DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+  function opponent(player) {
+    return player === 'O' ? 'X' : 'O';
+  }
+
+  // 새 판. 기본은 10×10, 3개를 이으면 승리, O가 먼저 둔다.
+  function createGame(size, winLength) {
+    if (size === undefined) size = 10;
+    if (winLength === undefined) winLength = 3;
+    if (!(size >= 3 && size <= 19 && size % 1 === 0)) throw new RangeError('판 크기는 3~19');
+    if (!(winLength >= 3 && winLength <= size && winLength % 1 === 0)) throw new RangeError('이길 줄 길이는 3~판 크기');
+    var cells = [];
+    for (var i = 0; i < size * size; i++) cells.push('');
+    return { size: size, winLength: winLength, cells: cells, turn: 'O', moves: [], winner: null, line: null, draw: false };
+  }
+
+  // index에 놓인 돌을 지나는, winLength 이상 이어진 줄의 칸 번호(작은 순)를 돌려준다. 없으면 null.
+  function findLine(cells, size, winLength, index) {
+    var player = cells[index];
+    if (!player) return null;
+    var row = Math.floor(index / size);
+    var col = index % size;
+    for (var d = 0; d < DIRECTIONS.length; d++) {
+      var dr = DIRECTIONS[d][0];
+      var dc = DIRECTIONS[d][1];
+      var line = [index];
+      var s;
+      for (s = 1; ; s++) {
+        var r1 = row - dr * s, c1 = col - dc * s;
+        if (r1 < 0 || r1 >= size || c1 < 0 || c1 >= size || cells[r1 * size + c1] !== player) break;
+        line.unshift(r1 * size + c1);
+      }
+      for (s = 1; ; s++) {
+        var r2 = row + dr * s, c2 = col + dc * s;
+        if (r2 < 0 || r2 >= size || c2 < 0 || c2 >= size || cells[r2 * size + c2] !== player) break;
+        line.push(r2 * size + c2);
+      }
+      if (line.length >= winLength) return line.sort(function (a, b) { return a - b; });
+    }
+    return null;
+  }
+
+  function isOver(game) {
+    return Boolean(game.winner) || game.draw;
+  }
+
+  // 지금 차례인 사람이 index에 둔 새 판을 돌려준다. 둘 수 없는 자리면 null. 원래 판은 바꾸지 않는다.
+  function play(game, index) {
+    if (isOver(game)) return null;
+    if (!(index >= 0 && index < game.cells.length && index % 1 === 0)) return null;
+    if (game.cells[index]) return null;
+    var cells = game.cells.slice();
+    cells[index] = game.turn;
+    var moves = game.moves.concat([index]);
+    var line = findLine(cells, game.size, game.winLength, index);
+    var winner = line ? game.turn : null;
+    var draw = !winner && moves.length === cells.length;
+    return {
+      size: game.size,
+      winLength: game.winLength,
+      cells: cells,
+      turn: winner || draw ? game.turn : opponent(game.turn),
+      moves: moves,
+      winner: winner,
+      line: line,
+      draw: draw
+    };
+  }
+
+  // 마지막 steps 수(기본 1)를 무른 판.
+  function undo(game, steps) {
+    if (steps === undefined) steps = 1;
+    var keep = game.moves.slice(0, Math.max(0, game.moves.length - steps));
+    var next = createGame(game.size, game.winLength);
+    for (var i = 0; i < keep.length; i++) next = play(next, keep[i]);
+    return next;
+  }
+
+  function emptyCells(cells) {
+    var out = [];
+    for (var i = 0; i < cells.length; i++) if (!cells[i]) out.push(i);
+    return out;
+  }
+
+  function winsAt(cells, size, winLength, index, player) {
+    if (cells[index]) return false;
+    cells[index] = player;
+    var won = findLine(cells, size, winLength, index) !== null;
+    cells[index] = '';
+    return won;
+  }
+
+  // index에 player가 두면 다음 수에 이길 수 있는 자리가 몇 곳 생기는지.
+  function threatsAfter(cells, size, winLength, index, player, empties) {
+    cells[index] = player;
+    var count = 0;
+    for (var k = 0; k < empties.length; k++) {
+      if (empties[k] !== index && winsAt(cells, size, winLength, empties[k], player)) count += 1;
+    }
+    cells[index] = '';
+    return count;
+  }
+
+  function minimax(cells, size, winLength, player, me, depth) {
+    var empties = emptyCells(cells);
+    var best = player === me ? -Infinity : Infinity;
+    for (var k = 0; k < empties.length; k++) {
+      var i = empties[k];
+      cells[i] = player;
+      var score;
+      if (findLine(cells, size, winLength, i)) score = player === me ? 100 - depth : depth - 100;
+      else if (empties.length === 1) score = 0;
+      else score = minimax(cells, size, winLength, opponent(player), me, depth + 1);
+      cells[i] = '';
+      if (player === me ? score > best : score < best) best = score;
+    }
+    return best;
+  }
+
+  function distanceFromCenter(index, size) {
+    var c = (size - 1) / 2;
+    return Math.abs(Math.floor(index / size) - c) + Math.abs((index % size) - c);
+  }
+
+  // 같은 점수면 가운데에 가까운 칸, 그다음 번호가 작은 칸을 고른다.
+  function pickBest(candidates, scoreOf, size) {
+    var best = -1, bestScore = -Infinity;
+    for (var k = 0; k < candidates.length; k++) {
+      var i = candidates[k];
+      var s = scoreOf(i);
+      if (s > bestScore || (s === bestScore && distanceFromCenter(i, size) < distanceFromCenter(best, size))) {
+        best = i;
+        bestScore = s;
+      }
+    }
+    return best;
+  }
+
+  // 컴퓨터의 수. 이길 자리 → 막을 자리 → (빈칸 9개 이하면 끝까지 읽기) → 양쪽 공격 만들기/막기 → 줄 점수 순으로 고른다.
+  function bestMove(game) {
+    if (isOver(game)) return -1;
+    var cells = game.cells.slice();
+    var size = game.size, n = game.winLength;
+    var me = game.turn, them = opponent(me);
+    var empties = emptyCells(cells);
+    var k;
+    for (k = 0; k < empties.length; k++) if (winsAt(cells, size, n, empties[k], me)) return empties[k];
+    for (k = 0; k < empties.length; k++) if (winsAt(cells, size, n, empties[k], them)) return empties[k];
+    if (empties.length <= 9) {
+      return pickBest(empties, function (i) {
+        cells[i] = me;
+        var s = empties.length === 1 ? 0 : minimax(cells, size, n, them, me, 1);
+        cells[i] = '';
+        return s;
+      }, size);
+    }
+    var forks = empties.filter(function (i) { return threatsAfter(cells, size, n, i, me, empties) >= 2; });
+    if (forks.length) return pickBest(forks, function () { return 0; }, size);
+    var blocks = empties.filter(function (i) { return threatsAfter(cells, size, n, i, them, empties) >= 2; });
+    if (blocks.length) return pickBest(blocks, function () { return 0; }, size);
+    return pickBest(empties, function (i) { return lineScore(cells, size, n, i, me); }, size);
+  }
+
+  // index를 지나는 길이 n짜리 구간마다, 한쪽 돌만 있으면 그 수만큼 점수를 준다(공격을 수비보다 조금 높게).
+  function lineScore(cells, size, n, index, me) {
+    var them = opponent(me);
+    var row = Math.floor(index / size), col = index % size;
+    var score = 0;
+    for (var d = 0; d < DIRECTIONS.length; d++) {
+      var dr = DIRECTIONS[d][0], dc = DIRECTIONS[d][1];
+      for (var start = -(n - 1); start <= 0; start++) {
+        var mine = 0, theirs = 0, ok = true;
+        for (var t = 0; t < n; t++) {
+          var r = row + dr * (start + t), c = col + dc * (start + t);
+          if (r < 0 || r >= size || c < 0 || c >= size) { ok = false; break; }
+          var v = cells[r * size + c];
+          if (v === me) mine += 1; else if (v === them) theirs += 1;
+        }
+        if (!ok) continue;
+        if (theirs === 0) score += 1 + mine * mine * 12;
+        if (mine === 0) score += theirs * theirs * 10;
+      }
+    }
+    return score;
+  }
+
+  root.Samok = { createGame: createGame, play: play, undo: undo, findLine: findLine, bestMove: bestMove, opponent: opponent };
+})(globalThis);
+</script>
+<!-- 화면: Samok 로직으로 판을 그리고 입력을 받는다. -->
+<script>
+(function () {
+  'use strict';
+  var boardEl = document.getElementById('board');
+  var statusEl = document.getElementById('status');
+  var scoreEl = document.getElementById('score');
+  var sizeEl = document.getElementById('size');
+  var modeEl = document.getElementById('mode');
+  var undoBtn = document.getElementById('undo');
+  var NAMES = { O: 'O', X: 'X' };
+  var firstEl = document.getElementById('first');
+  var game;
+  var focusIndex = 0;
+  var thinking = null;
+  var score = { O: 0, X: 0, draw: 0 };
+  var counted = false;
+
+  function vsComputer() { return modeEl.value === 'computer'; }
+  // 먼저 두는 쪽이 O다. 컴퓨터가 먼저면 컴퓨터가 O, 아니면 X.
+  function computerSide() { return firstEl.value === 'computer' ? 'O' : 'X'; }
+
+  function markEl(player) {
+    var m = document.createElement('span');
+    m.className = 'mark ' + player.toLowerCase();
+    m.setAttribute('aria-hidden', 'true');
+    return m;
+  }
+  function chip(player) {
+    var c = document.createElement('span');
+    c.className = 'chip';
+    c.appendChild(markEl(player));
+    return c;
+  }
+
+  function buildBoard() {
+    boardEl.textContent = '';
+    boardEl.className = 'board size-' + game.size;
+    boardEl.style.gridTemplateColumns = 'repeat(' + game.size + ', 1fr)';
+    for (var r = 0; r < game.size; r++) {
+      var row = document.createElement('div');
+      row.setAttribute('role', 'row');
+      row.style.display = 'contents';
+      for (var c = 0; c < game.size; c++) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cell';
+        b.setAttribute('role', 'gridcell');
+        b.dataset.index = String(r * game.size + c);
+        row.appendChild(b);
+      }
+      boardEl.appendChild(row);
+    }
+  }
+
+  function cellAt(i) { return boardEl.querySelector('[data-index="' + i + '"]'); }
+
+  function render() {
+    var winSet = {};
+    (game.line || []).forEach(function (i) { winSet[i] = true; });
+    var last = game.moves.length ? game.moves[game.moves.length - 1] : -1;
+    var over = Boolean(game.winner) || game.draw;
+    var waiting = vsComputer() && game.turn === computerSide() && !over;
+    for (var i = 0; i < game.cells.length; i++) {
+      var b = cellAt(i);
+      var v = game.cells[i];
+      b.textContent = '';
+      if (v) b.appendChild(markEl(v));
+      // disabled를 쓰면 키보드 포커스가 판 밖으로 빠지므로 aria-disabled로만 표시한다.
+      b.setAttribute('aria-disabled', String(Boolean(v) || over || waiting));
+      b.classList.toggle('win', Boolean(winSet[i]));
+      b.classList.toggle('last', i === last && !winSet[i]);
+      b.tabIndex = i === focusIndex ? 0 : -1;
+      var r = Math.floor(i / game.size) + 1, c = (i % game.size) + 1;
+      b.setAttribute('aria-label', r + '행 ' + c + '열, ' + (v ? NAMES[v] : '빈 칸') + (winSet[i] ? ', 이긴 줄' : ''));
+    }
+    statusEl.textContent = '';
+    if (game.winner) {
+      statusEl.appendChild(chip(game.winner));
+      statusEl.appendChild(document.createTextNode(
+        vsComputer() ? (game.winner === computerSide() ? '컴퓨터가 이겼습니다.' : '이겼습니다!') : NAMES[game.winner] + ' 승리!'));
+    } else if (game.draw) {
+      statusEl.textContent = '무승부입니다.';
+    } else {
+      statusEl.appendChild(chip(game.turn));
+      statusEl.appendChild(document.createTextNode(
+        waiting ? '컴퓨터가 생각하는 중…' : (vsComputer() ? '내 차례' : NAMES[game.turn] + ' 차례')));
+    }
+    undoBtn.disabled = game.moves.length === 0 || waiting;
+    if (over && !counted) {
+      counted = true;
+      if (game.winner) score[game.winner] += 1; else score.draw += 1;
+    }
+    var cpu = computerSide(), me = Samok.opponent(cpu);
+    firstEl.disabled = !vsComputer();
+    scoreEl.textContent = vsComputer()
+      ? '나(' + me + ') ' + score[me] + '승 · 컴퓨터(' + cpu + ') ' + score[cpu] + '승 · 무승부 ' + score.draw
+      : 'O ' + score.O + '승 · X ' + score.X + '승 · 무승부 ' + score.draw;
+  }
+
+  function computerTurn() {
+    if (!vsComputer() || game.turn !== computerSide() || game.winner || game.draw) return;
+    thinking = setTimeout(function () {
+      thinking = null;
+      var m = Samok.bestMove(game);
+      if (m >= 0) game = Samok.play(game, m);
+      render();
+    }, 300);
+  }
+
+  function stopThinking() {
+    if (thinking) { clearTimeout(thinking); thinking = null; }
+  }
+
+  function newGame() {
+    stopThinking();
+    game = Samok.createGame(Number(sizeEl.value), 3);
+    focusIndex = Math.floor(game.cells.length / 2) - (game.size % 2 ? 0 : game.size / 2);
+    counted = false;
+    buildBoard();
+    render();
+    computerTurn();
+  }
+
+  boardEl.addEventListener('click', function (e) {
+    var b = e.target.closest('.cell');
+    if (!b || b.getAttribute('aria-disabled') === 'true') return;
+    var i = Number(b.dataset.index);
+    var next = Samok.play(game, i);
+    if (!next) return;
+    game = next;
+    focusIndex = i;
+    render();
+    computerTurn();
+  });
+
+  boardEl.addEventListener('keydown', function (e) {
+    var moves = { ArrowUp: -game.size, ArrowDown: game.size, ArrowLeft: -1, ArrowRight: 1 };
+    if (!(e.key in moves) && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    var r = Math.floor(focusIndex / game.size), c = focusIndex % game.size;
+    if (e.key === 'ArrowUp') r = Math.max(0, r - 1);
+    if (e.key === 'ArrowDown') r = Math.min(game.size - 1, r + 1);
+    if (e.key === 'ArrowLeft') c = Math.max(0, c - 1);
+    if (e.key === 'ArrowRight') c = Math.min(game.size - 1, c + 1);
+    if (e.key === 'Home') c = 0;
+    if (e.key === 'End') c = game.size - 1;
+    focusIndex = r * game.size + c;
+    for (var i = 0; i < game.cells.length; i++) cellAt(i).tabIndex = i === focusIndex ? 0 : -1;
+    cellAt(focusIndex).focus();
+  });
+
+  boardEl.addEventListener('focusin', function (e) {
+    var b = e.target.closest('.cell');
+    if (b) focusIndex = Number(b.dataset.index);
+  });
+
+  undoBtn.addEventListener('click', function () {
+    stopThinking();
+    var wasOver = Boolean(game.winner) || game.draw;
+    // 컴퓨터와 둘 때는 내 차례로 돌아가도록 컴퓨터 수까지 함께 무른다.
+    var steps = 1;
+    if (vsComputer()) {
+      var lastPlayer = game.cells[game.moves[game.moves.length - 1]];
+      steps = lastPlayer === computerSide() ? 2 : 1;
+    }
+    if (wasOver && counted) {
+      if (game.winner) score[game.winner] -= 1; else score.draw -= 1;
+    }
+    counted = false;
+    game = Samok.undo(game, steps);
+    render();
+    computerTurn();
+  });
+
+  document.getElementById('new').addEventListener('click', newGame);
+  sizeEl.addEventListener('change', newGame);
+  // 상대나 먼저 두는 쪽이 바뀌면 O·X 주인이 바뀌므로 전적을 새로 센다.
+  function resetAndStart() {
+    score = { O: 0, X: 0, draw: 0 };
+    newGame();
+  }
+  modeEl.addEventListener('change', resetAndStart);
+  firstEl.addEventListener('change', resetAndStart);
+
+  newGame();
+})();
+</script>
+</body>
+</html>
